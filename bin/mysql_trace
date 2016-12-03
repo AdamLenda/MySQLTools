@@ -1,0 +1,66 @@
+#!/bin/bash
+
+if [ ! -f ~/.my.cnf ]; then
+	echo "${0} requires a ~/.my.cnf file";
+	exit -1
+fi
+
+#Set string comparisons to be case insensitive
+shopt -s nocasematch
+
+#Function to get the current log status
+function get_general_log_status () {
+	GENERAL_LOG_STATUS="$(mysql -N -e"SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_VARIABLES WHERE VARIABLE_NAME = 'general_log'")"
+	return 0
+}
+
+#Function to set the log status
+function set_general_log_status () {
+	get_general_log_status
+	if [ "${GENERAL_LOG_STATUS}" == "${1}" ]; then
+		echo "MySQL general log status is already ${1}"
+		return 0
+	fi
+	
+	mysql -e"SET GLOBAL general_log = '${1}';"
+	
+	get_general_log_status
+	
+	if [ "${GENERAL_LOG_STATUS}" == "${1}" ]; then
+		echo "Set MySQL general log status to ${1}"
+		return 0
+	fi
+
+	echo "Failed to set MySQL general log status to ${1}"
+	return -1
+}
+
+#Function to determine log file path
+function get_general_log_file_path () {
+
+	DATADIR="$(mysql -N -e"SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_VARIABLES WHERE VARIABLE_NAME = 'DATADIR'")"
+	GENERAL_LOG_FILE="$(mysql -N -e"SELECT VARIABLE_VALUE FROM information_schema.GLOBAL_VARIABLES WHERE VARIABLE_NAME = 'general_log_file'")"
+	GENERAL_LOG_FILE_PATH="${DATADIR}${GENERAL_LOG_FILE}"
+	return 0
+}
+
+#Ensure we retrieve the log status
+get_general_log_status
+if [ -z "${GENERAL_LOG_STATUS}" ]; then
+	echo "Error: MySQL general log status could not be determined."
+	exit
+fi
+
+#Ensure we have the log file path
+get_general_log_file_path
+if [ -z "${GENERAL_LOG_FILE_PATH}" ]; then
+	echo "Error: MySQL general log file path could not be determined."
+	exit
+fi
+
+set_general_log_status "ON"
+
+#The trap command will run when the user hits ^c to terminate the tail command
+trap "echo;set_general_log_status OFF;exit 0;" INT
+
+tail -n25 -F "${GENERAL_LOG_FILE_PATH}"
